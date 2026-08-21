@@ -1,1 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
 
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Event Registration | PriorityFixa Commerce</title>
+
+    <link
+        rel="stylesheet"
+        href="css/style.css"
+    >
+
+    <script src="js/business.js"></script>
+    <script src="js/registration.js" defer></script>
+</head>
+
+<body>
+
+<header class="site-header">
+
+    <a href="index.html" class="brand">
+        <span id="business-name">
+            PriorityFixa Commerce
+        </span>
+    </a>
+
+    <nav class="main-nav">
+
+        <a href="index.html">
+            Store
+        </a>
+
+        <a href="community.html">
+            Community
+        </a>
+
+        <a href="events.html">
+            Events
+        </a>
+
+        <a href="cart.html">
+            Cart
+            <span id="cart-count">0</span>
+        </a>
+
+    </nav>
+
+</header>
+
+
+<main>
+
+    <section class="store-hero">
+
+        <p class="eyebrow">
+            EVENT REGISTRATION
+        </p>
+
+        <h1 id="registration-event-title">
+            Event Registration
+        </h1>
+
+        <p id="registration-event-info">
+            Complete the form below to register.
+        </p>
+
+    </section>
+
+
+    <section class="registration-section">
+
+        <div class="registration-card">
+
+            <h2>
+                Your Details
+            </h2>
+
+            <p>
+                Please provide your details to reserve
+                your place at this event.
+            </p>
+
+
+            <form id="event-registration-form">
+
+                <input
+                    type="hidden"
+                    id="event-id"
+                    name="eventId"
+                >
+
+
+                <div class="form-group">
+
+                    <label for="name">
+                        Full Name
+                    </label>
+
+                    <input
+                        type="text"
+                        id="name"
+                        name="name"
+                        placeholder="Your full name"
+                        required
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label for="email">
+                        Email Address
+                    </label>
+
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        placeholder="you@example.com"
+                        required
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label for="phone">
+                        Phone Number
+                    </label>
+
+                    <input
+                        type="tel"
+                        id="phone"
+                        name="phone"
+                        placeholder="07XX XXX XXX"
+                        required
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label for="organisation">
+                        Organisation
+                    </label>
+
+                    <input
+                        type="text"
+                        id="organisation"
+                        name="organisation"
+                        placeholder="Organisation (optional)"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label for="attendees">
+                        Number of Attendees
+                    </label>
+
+                    <select
+                        id="attendees"
+                        name="attendees"
+                    >
+
+                        <option value="1">
+                            1
+                        </option>
+
+                        <option value="2">
+                            2
+                        </option>
+
+                        <option value="3">
+                            3
+                        </option>
+
+                        <option value="4">
+                            4
+                        </option>
+
+                        <option value="5">
+                            5
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+                <button
+                    type="submit"
+                    class="add-to-cart"
+                >
+                    Complete Registration
+                </button>
+
+
+                <div
+                    id="registration-message"
+                    aria-live="polite"
+                ></div>
+
+            </form>
+
+        </div>
+
+    </section>
+
+</main>
+
+
+<footer class="site-footer">
+
+    <p>
+        © <span id="footer-business-name">
+            PriorityFixa Commerce
+        </span>
+    </p>
+
+</footer>
+
+</body>
+
+</html>
