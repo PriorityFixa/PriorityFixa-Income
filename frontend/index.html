@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
     <meta charset="UTF-8">
 
     <meta
@@ -8,14 +10,29 @@
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>Commerce Store</title>
-        <link rel="stylesheet" href="css/style.css">
+    <title>PriorityFixa Commerce</title>
 
-<script src="js/business.js"></script>
-<script src="js/branding.js"></script>
-<script src="js/products.js"></script>
-<script src="js/storefront.js"></script>
+    <link
+        rel="stylesheet"
+        href="css/style.css"
+    >
+
+    <!-- =========================
+         CONFIGURATION
+    ========================== -->
+
+    <script src="config/business.js"></script>
+    <script src="config/branding.js"></script>
+
+    <!-- =========================
+         STOREFRONT DATA
+    ========================== -->
+
+    <script src="js/products.js"></script>
+    <script src="js/storefront.js"></script>
+
 </head>
+
 
 <body>
 
@@ -25,30 +42,36 @@
 
     <header class="site-header">
 
-        <a href="index.html" class="brand">
-            <span id="business-name">Commerce Store</span>
+        <a
+            href="index.html"
+            class="brand"
+        >
+            <span id="business-name">
+                PriorityFixa Commerce
+            </span>
         </a>
+
 
         <nav class="main-nav">
 
-    <a href="index.html">
-        Store
-    </a>
+            <a href="index.html">
+                Store
+            </a>
 
-    <a href="community.html">
-        Community
-    </a>
+            <a href="community.html">
+                Community
+            </a>
 
-    <a href="events.html">
-        Events
-    </a>
+            <a href="events.html">
+                Events
+            </a>
 
-    <a href="cart.html">
-        Cart
-        <span id="cart-count">0</span>
-    </a>
+            <a href="cart.html">
+                Cart
+                <span id="cart-count">0</span>
+            </a>
 
-</nav>
+        </nav>
 
     </header>
 
@@ -61,7 +84,9 @@
 
         <section class="store-hero">
 
-            <p class="eyebrow">ONLINE STORE</p>
+            <p class="eyebrow">
+                ONLINE STORE
+            </p>
 
             <h1 id="store-title">
                 Products
@@ -84,7 +109,7 @@
                 id="product-grid"
                 class="product-grid"
             >
-                <!-- Products will be inserted here by JavaScript -->
+                <!-- Products inserted by JavaScript -->
             </div>
 
         </section>
@@ -100,24 +125,12 @@
 
         <p>
             <span id="footer-business-name">
-                Commerce Store
+                PriorityFixa Commerce
             </span>
         </p>
 
     </footer>
 
-
-    <!-- =========================
-         CONFIGURATION
-    ========================== -->
-
-    
-
-    <!-- =========================
-         STOREFRONT JAVASCRIPT
-    ========================== -->
-
-  
-
 </body>
+
 </html>
