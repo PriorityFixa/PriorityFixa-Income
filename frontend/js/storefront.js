@@ -1,15 +1,28 @@
 function formatPrice(amount) {
-    const currency = BUSINESS_CONFIG.location.currencySymbol;
+    const currency =
+        BUSINESS_CONFIG.location.currencySymbol;
 
-    return `${currency} ${amount.toLocaleString()}`;
+    return `${currency} ${Number(amount).toLocaleString()}`;
 }
 
 
 function displayProducts() {
 
-    const productGrid = document.getElementById("product-grid");
+    const productGrid =
+        document.getElementById("product-grid");
 
     if (!productGrid) {
+        console.error("Product grid not found.");
+        return;
+    }
+
+    if (typeof PRODUCTS === "undefined") {
+        console.error("PRODUCTS is not loaded.");
+        productGrid.innerHTML = `
+            <p class="error-message">
+                Products could not be loaded.
+            </p>
+        `;
         return;
     }
 
@@ -19,9 +32,10 @@ function displayProducts() {
 
     if (activeProducts.length === 0) {
         productGrid.innerHTML = `
-            <p>No products available.</p>
+            <p class="empty-cart">
+                No products available.
+            </p>
         `;
-
         return;
     }
 
@@ -40,13 +54,15 @@ function displayProducts() {
 
                 <div class="product-content">
 
-                    <h2>${product.name}</h2>
+                    <h2 class="product-name">
+                        ${product.name}
+                    </h2>
 
-                    <p>
+                    <p class="product-description">
                         ${product.description}
                     </p>
 
-                    <strong>
+                    <strong class="product-price">
                         ${formatPrice(product.price)}
                     </strong>
 
@@ -64,10 +80,16 @@ function displayProducts() {
         `;
 
     }).join("");
+
 }
 
 
 function loadBusinessInformation() {
+
+    if (typeof BUSINESS_CONFIG === "undefined") {
+        console.error("BUSINESS_CONFIG is not loaded.");
+        return;
+    }
 
     const businessName =
         document.getElementById("business-name");
@@ -89,7 +111,7 @@ function loadBusinessInformation() {
 
     if (storeTitle) {
         storeTitle.textContent =
-            BUSINESS_CONFIG.name;
+            "Products";
     }
 
     if (storeTagline) {
