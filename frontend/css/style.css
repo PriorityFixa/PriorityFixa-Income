@@ -827,5 +827,122 @@ button[type="submit"]:active {
     }
 
 }
+/* =========================================================
+   COMMUNITY REGISTRATION
+   ========================================================= */
+
+.registration-section {
+    width: min(100% - 40px, 680px);
+    margin: 0 auto;
+
+    padding-bottom: 100px;
+}
+
+.registration-card {
+    padding: 35px;
+
+    background: #ffffff;
+
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+
+    box-shadow: var(--shadow-md);
+}
+
+.registration-card h2 {
+    margin-bottom: 10px;
+
+    color: var(--primary);
+
+    font-size: 1.6rem;
+    font-weight: 800;
+}
+
+.registration-card > p {
+    margin-bottom: 30px;
+
+    color: var(--text-soft);
+
+    font-size: 0.95rem;
+}
+
+#community-form {
+    display: grid;
+    gap: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    margin-bottom: 7px;
+
+    color: var(--primary);
+
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+
+    padding: 13px 14px;
+
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+
+    background: #ffffff;
+    color: var(--text);
+
+    outline: none;
+
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.form-group input::placeholder {
+    color: var(--text-muted);
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    border-color: var(--accent);
+
+    box-shadow:
+        0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+#community-form button {
+    margin-top: 5px;
+}
+
+#form-message {
+    min-height: 20px;
+}
+
+
+/* =========================================================
+   COMMUNITY — MOBILE
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+    .registration-section {
+        width: min(100% - 28px, 680px);
+
+        padding-bottom: 65px;
+    }
+
+    .registration-card {
+        padding: 22px;
+    }
+
+}
 ```
 
