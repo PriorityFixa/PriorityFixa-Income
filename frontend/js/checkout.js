@@ -4,6 +4,28 @@
 
 
 /* =========================
+   API
+========================= */
+
+const API_URL =
+    "https://priorityfixa-income-api.priorityfixa.workers.dev";
+
+
+/* =========================
+   FORMAT PRICE
+========================= */
+
+function formatPrice(amount) {
+
+    const currency =
+        BUSINESS_CONFIG.location.currencySymbol;
+
+    return `${currency} ${Number(amount).toLocaleString()}`;
+
+}
+
+
+/* =========================
    RENDER ORDER SUMMARY
 ========================= */
 
@@ -20,10 +42,6 @@ function renderCheckoutSummary() {
     const cart = getCart();
 
 
-    /* =========================
-       EMPTY CART
-    ========================== */
-
     if (cart.length === 0) {
 
         container.innerHTML = `
@@ -35,7 +53,7 @@ function renderCheckoutSummary() {
                 </h2>
 
                 <p>
-                    Add products before proceeding to checkout.
+                    Add products before checkout.
                 </p>
 
                 <a
@@ -56,46 +74,47 @@ function renderCheckoutSummary() {
     let total = 0;
 
 
-    const itemsHTML = cart.map(item => {
+    const itemsHTML =
+        cart.map(item => {
 
-        const quantity =
-            Number(item.quantity);
+            const quantity =
+                Number(item.quantity);
 
-        const price =
-            Number(item.price);
+            const price =
+                Number(item.price);
 
-        const subtotal =
-            price * quantity;
+            const subtotal =
+                price * quantity;
 
-        total += subtotal;
+            total += subtotal;
 
 
-        return `
+            return `
 
-            <div class="checkout-item">
+                <div class="checkout-item">
 
-                <div>
+                    <div>
+
+                        <strong>
+                            ${item.name}
+                        </strong>
+
+                        <p>
+                            ${quantity} ×
+                            ${formatPrice(price)}
+                        </p>
+
+                    </div>
 
                     <strong>
-                        ${item.name}
+                        ${formatPrice(subtotal)}
                     </strong>
-
-                    <p>
-                        ${quantity} × ${formatPrice(price)}
-                    </p>
 
                 </div>
 
+            `;
 
-                <strong>
-                    ${formatPrice(subtotal)}
-                </strong>
-
-            </div>
-
-        `;
-
-    }).join("");
+        }).join("");
 
 
     container.innerHTML = `
@@ -104,13 +123,11 @@ function renderCheckoutSummary() {
             Order Summary
         </h2>
 
-
         <div class="checkout-items">
 
             ${itemsHTML}
 
         </div>
-
 
         <div class="checkout-total">
 
@@ -133,7 +150,7 @@ function renderCheckoutSummary() {
 
 
 /* =========================
-   CUSTOMER INFORMATION
+   CUSTOMER DETAILS
 ========================= */
 
 function getCustomerDetails() {
@@ -170,24 +187,29 @@ function getCustomerDetails() {
 
 
 /* =========================
-   CHECKOUT SUBMISSION
+   CREATE ORDER
 ========================= */
 
 async function handleCheckoutSubmit(event) {
 
     event.preventDefault();
 
+
     const cart = getCart();
+
 
     if (cart.length === 0) {
 
-        alert("Your cart is empty.");
+        alert(
+            "Your cart is empty."
+        );
 
         return;
     }
 
 
-    const customer = getCustomerDetails();
+    const customer =
+        getCustomerDetails();
 
 
     const submitButton =
@@ -208,33 +230,50 @@ async function handleCheckoutSubmit(event) {
 
     try {
 
-        const response = await fetch(
-            "https://priorityfixa-income-api.priorityfixa.workers.dev/orders",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify({
-
-                    customer: customer,
-
-                    items: cart
-
-                })
-
-            }
+        console.log(
+            "Sending order to API..."
         );
+
+
+        const response =
+            await fetch(
+                `${API_URL}/orders`,
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+
+                        customer:
+                            customer,
+
+                        items:
+                            cart
+
+                    })
+
+                }
+            );
 
 
         const result =
             await response.json();
 
 
-        if (!response.ok || !result.success) {
+        console.log(
+            "API response:",
+            result
+        );
+
+
+        if (
+            !response.ok ||
+            !result.success
+        ) {
 
             throw new Error(
                 result.error ||
@@ -251,15 +290,10 @@ async function handleCheckoutSubmit(event) {
 
 
         alert(
-            "Order created successfully. Order ID: " +
+            "Order created successfully.\n\n" +
+            "Order ID: " +
             result.order.id
         );
-
-
-        /*
-         * PAYMENT WILL BE CONNECTED
-         * AFTER ORDER CREATION IS VERIFIED.
-         */
 
 
     } catch (error) {
@@ -271,7 +305,8 @@ async function handleCheckoutSubmit(event) {
 
 
         alert(
-            "There was a problem creating your order. Please try again."
+            "There was a problem creating your order.\n\n" +
+            error.message
         );
 
 
@@ -291,35 +326,6 @@ async function handleCheckoutSubmit(event) {
 }
 
 
-    const customer =
-        getCustomerDetails();
-
-
-    console.log(
-        "Customer:",
-        customer
-    );
-
-
-    console.log(
-        "Order:",
-        cart
-    );
-
-
-    /*
-       PAYMENT WILL BE CONNECTED
-       IN THE NEXT STEP.
-    */
-
-
-    alert(
-        "Customer details received. Payment will be connected next."
-    );
-
-}
-
-
 /* =========================
    BUSINESS INFORMATION
 ========================= */
@@ -330,6 +336,11 @@ function loadCheckoutBusinessInformation() {
         typeof BUSINESS_CONFIG ===
         "undefined"
     ) {
+
+        console.error(
+            "BUSINESS_CONFIG is not loaded."
+        );
+
         return;
     }
 
@@ -381,30 +392,26 @@ function initializeCheckout() {
         );
 
 
-    if (form) {
+    if (!form) {
 
-        form.addEventListener(
-            "submit",
-            handleCheckoutSubmit
+        console.error(
+            "Checkout form not found."
         );
+
+        return;
 
     }
 
-}
 
-
-if (
-    document.readyState ===
-    "loading"
-) {
-
-    document.addEventListener(
-        "DOMContentLoaded",
-        initializeCheckout
+    form.addEventListener(
+        "submit",
+        handleCheckoutSubmit
     );
 
-} else {
-
-    initializeCheckout();
-
 }
+
+
+document.addEventListener(
+    "DOMContentLoaded",
+    initializeCheckout
+);
