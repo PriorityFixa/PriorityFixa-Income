@@ -194,9 +194,7 @@ async function handleCheckoutSubmit(event) {
 
     event.preventDefault();
 
-
     const cart = getCart();
-
 
     if (cart.length === 0) {
 
@@ -211,6 +209,26 @@ async function handleCheckoutSubmit(event) {
     const customer =
         getCustomerDetails();
 
+
+    /* =========================
+       CALCULATE TOTAL
+    ========================= */
+
+    const total =
+        cart.reduce(
+            (sum, item) =>
+                sum +
+                (
+                    Number(item.price) *
+                    Number(item.quantity)
+                ),
+            0
+        );
+
+
+    /* =========================
+       GET SUBMIT BUTTON
+    ========================= */
 
     const submitButton =
         event.target.querySelector(
@@ -230,15 +248,20 @@ async function handleCheckoutSubmit(event) {
 
     try {
 
+        /* =========================
+           CREATE ORDER
+        ========================= */
+
         console.log(
             "Sending order to API..."
         );
 
 
-        const response =
+        const orderResponse =
             await fetch(
                 `${API_URL}/orders`,
                 {
+
                     method: "POST",
 
                     headers: {
@@ -260,39 +283,144 @@ async function handleCheckoutSubmit(event) {
             );
 
 
-        const result =
-            await response.json();
+        const orderResult =
+            await orderResponse.json();
 
 
         console.log(
             "API response:",
-            result
+            orderResult
         );
 
 
         if (
-            !response.ok ||
-            !result.success
+            !orderResponse.ok ||
+            !orderResult.success
         ) {
 
             throw new Error(
-                result.error ||
+                orderResult.error ||
                 "Order could not be created."
             );
 
         }
 
 
+        const order =
+            orderResult.order;
+
+
         console.log(
             "Order created:",
-            result.order
+            order
         );
 
 
+        /* =========================
+           START M-PESA PAYMENT
+        ========================= */
+
+        if (submitButton) {
+
+            submitButton.textContent =
+                "Requesting M-Pesa...";
+
+        }
+
+
+        console.log(
+            "Starting M-Pesa payment..."
+        );
+
+
+        const paymentResponse =
+            await fetch(
+                `${API_URL}/payments/mpesa`,
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json"
+
+                    },
+
+                    body: JSON.stringify({
+
+                        orderId:
+                            order.id,
+
+                        amount:
+                            total,
+
+                        phone:
+                            customer.phone
+
+                    })
+
+                }
+            );
+
+
+        const paymentResult =
+            await paymentResponse.json();
+
+
+        console.log(
+            "M-Pesa response:",
+            paymentResult
+        );
+
+
+        if (
+            !paymentResponse.ok ||
+            !paymentResult.success
+        ) {
+
+            throw new Error(
+                paymentResult.error ||
+                "M-Pesa payment could not be initiated."
+            );
+
+        }
+
+
+        /* =========================
+           PAYMENT REQUEST SUCCESS
+        ========================= */
+
+        if (submitButton) {
+
+            submitButton.textContent =
+                "M-Pesa Request Sent";
+
+        }
+
+
         alert(
+
             "Order created successfully.\n\n" +
+
             "Order ID: " +
-            result.order.id
+            order.id +
+
+            "\n\n" +
+
+            "A payment request has been sent to " +
+            customer.phone +
+
+            ".\n\n" +
+
+            "Please check your phone and complete the M-Pesa payment."
+
+        );
+
+
+        console.log(
+            "STK Push initiated:",
+            paymentResult.response
         );
 
 
@@ -305,8 +433,11 @@ async function handleCheckoutSubmit(event) {
 
 
         alert(
-            "There was a problem creating your order.\n\n" +
+
+            "There was a problem with your order or payment.\n\n" +
+
             error.message
+
         );
 
 
@@ -324,7 +455,6 @@ async function handleCheckoutSubmit(event) {
     }
 
 }
-
 
 /* =========================
    BUSINESS INFORMATION
