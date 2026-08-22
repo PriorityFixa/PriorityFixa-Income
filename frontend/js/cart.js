@@ -3,8 +3,21 @@
 ========================================================= */
 
 
-const CART_KEY = "priorityfixa_cart";
+/* =========================
+   PRICE FORMAT
+========================= */
 
+function formatPrice(amount) {
+
+    const currency =
+        BUSINESS_CONFIG.location.currencySymbol;
+
+    return `${currency} ${Number(amount).toLocaleString()}`;
+
+}
+
+
+const CART_KEY = "priorityfixa_cart";
 
 /* =========================
    GET CART
