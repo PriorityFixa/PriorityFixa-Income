@@ -132,4 +132,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     displayProducts();
 
+    setupCartButtons();
+
+    updateCartCount();
+
 });
