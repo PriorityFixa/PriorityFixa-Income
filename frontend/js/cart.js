@@ -188,13 +188,4 @@ function setupCartButtons() {
    INITIALIZE CART
 ========================= */
 
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
 
-        setupCartButtons();
-
-        updateCartCount();
-
-    }
-);
