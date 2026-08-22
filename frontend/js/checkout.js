@@ -173,23 +173,122 @@ function getCustomerDetails() {
    CHECKOUT SUBMISSION
 ========================= */
 
-function handleCheckoutSubmit(event) {
+async function handleCheckoutSubmit(event) {
 
     event.preventDefault();
 
-
     const cart = getCart();
-
 
     if (cart.length === 0) {
 
-        alert(
-            "Your cart is empty."
-        );
+        alert("Your cart is empty.");
 
         return;
+    }
+
+
+    const customer = getCustomerDetails();
+
+
+    const submitButton =
+        event.target.querySelector(
+            'button[type="submit"]'
+        );
+
+
+    if (submitButton) {
+
+        submitButton.disabled = true;
+
+        submitButton.textContent =
+            "Creating Order...";
 
     }
+
+
+    try {
+
+        const response = await fetch(
+            "https://priorityfixa-income-api.priorityfixa.workers.dev/orders",
+            {
+                method: "POST",
+
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body: JSON.stringify({
+
+                    customer: customer,
+
+                    items: cart
+
+                })
+
+            }
+        );
+
+
+        const result =
+            await response.json();
+
+
+        if (!response.ok || !result.success) {
+
+            throw new Error(
+                result.error ||
+                "Order could not be created."
+            );
+
+        }
+
+
+        console.log(
+            "Order created:",
+            result.order
+        );
+
+
+        alert(
+            "Order created successfully. Order ID: " +
+            result.order.id
+        );
+
+
+        /*
+         * PAYMENT WILL BE CONNECTED
+         * AFTER ORDER CREATION IS VERIFIED.
+         */
+
+
+    } catch (error) {
+
+        console.error(
+            "Checkout error:",
+            error
+        );
+
+
+        alert(
+            "There was a problem creating your order. Please try again."
+        );
+
+
+    } finally {
+
+        if (submitButton) {
+
+            submitButton.disabled = false;
+
+            submitButton.textContent =
+                "Continue to Payment";
+
+        }
+
+    }
+
+}
 
 
     const customer =
