@@ -18,11 +18,14 @@ concurrency:
 
 jobs:
 
+  # ==========================================
+  # GITHUB PAGES
+  # ==========================================
   build:
+    name: Build Website
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -40,6 +43,7 @@ jobs:
           path: ./_site
 
   deploy:
+    name: Deploy GitHub Pages
     environment:
       name: github-pages
 
@@ -48,7 +52,25 @@ jobs:
     needs: build
 
     steps:
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+
+  # ==========================================
+  # CLOUDFLARE WORKER
+  # ==========================================
+  deploy-worker:
+    name: Deploy Cloudflare Worker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Worker
+        working-directory: worker
+        run: npx wrangler@4 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
