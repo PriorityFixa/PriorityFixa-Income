@@ -1,3 +1,4 @@
+```javascript
 /* =========================================================
    PRIORITYFIXA COMMERCE — CHECKOUT
 ========================================================= */
@@ -9,6 +10,14 @@
 
 const API_URL =
     "https://priorityfixa-income-api.priorityfixa.workers.dev";
+
+
+/* =========================
+   PAYMENT POLLING
+========================= */
+
+let paymentPollingTimer = null;
+let paymentPollingActive = false;
 
 
 /* =========================
@@ -38,9 +47,7 @@ function renderCheckoutSummary() {
         return;
     }
 
-
     const cart = getCart();
-
 
     if (cart.length === 0) {
 
@@ -70,9 +77,7 @@ function renderCheckoutSummary() {
         return;
     }
 
-
     let total = 0;
-
 
     const itemsHTML =
         cart.map(item => {
@@ -87,7 +92,6 @@ function renderCheckoutSummary() {
                 price * quantity;
 
             total += subtotal;
-
 
             return `
 
@@ -116,7 +120,6 @@ function renderCheckoutSummary() {
 
         }).join("");
 
-
     container.innerHTML = `
 
         <h2>
@@ -142,7 +145,6 @@ function renderCheckoutSummary() {
         </div>
 
     `;
-
 
     updateCartCount();
 
@@ -187,7 +189,356 @@ function getCustomerDetails() {
 
 
 /* =========================
-   CREATE ORDER
+   PAYMENT STATUS UI
+========================= */
+
+function showPaymentStatus(
+    type,
+    title,
+    message,
+    receipt = null
+) {
+
+    let statusContainer =
+        document.getElementById(
+            "payment-status"
+        );
+
+    if (!statusContainer) {
+
+        const form =
+            document.getElementById(
+                "checkout-form"
+            );
+
+        if (!form) {
+            return;
+        }
+
+        statusContainer =
+            document.createElement("div");
+
+        statusContainer.id =
+            "payment-status";
+
+        statusContainer.setAttribute(
+            "role",
+            "status"
+        );
+
+        form.parentNode.insertBefore(
+            statusContainer,
+            form
+        );
+
+    }
+
+    let receiptHTML = "";
+
+    if (receipt) {
+
+        receiptHTML = `
+
+            <p class="payment-receipt">
+
+                <strong>
+                    M-Pesa Receipt:
+                </strong>
+
+                ${receipt}
+
+            </p>
+
+        `;
+
+    }
+
+    statusContainer.className =
+        `payment-status ${type}`;
+
+    statusContainer.innerHTML = `
+
+        <div class="payment-status-content">
+
+            <h3>
+                ${title}
+            </h3>
+
+            <p>
+                ${message}
+            </p>
+
+            ${receiptHTML}
+
+        </div>
+
+    `;
+
+    statusContainer.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+    });
+
+}
+
+
+/* =========================
+   STOP PAYMENT POLLING
+========================= */
+
+function stopPaymentPolling() {
+
+    paymentPollingActive = false;
+
+    if (paymentPollingTimer) {
+
+        clearTimeout(
+            paymentPollingTimer
+        );
+
+        paymentPollingTimer = null;
+
+    }
+
+}
+
+
+/* =========================
+   CHECK PAYMENT STATUS
+========================= */
+
+async function checkPaymentStatus(
+    orderId,
+    submitButton
+) {
+
+    if (!orderId) {
+        return;
+    }
+
+    if (!paymentPollingActive) {
+        return;
+    }
+
+    try {
+
+        console.log(
+            "Checking payment status:",
+            orderId
+        );
+
+        const response =
+            await fetch(
+                `${API_URL}/orders/status?orderId=${encodeURIComponent(orderId)}`,
+                {
+                    method: "GET",
+                    cache: "no-store"
+                }
+            );
+
+        const result =
+            await response.json();
+
+        console.log(
+            "Payment status response:",
+            result
+        );
+
+        if (
+            !response.ok ||
+            !result.success
+        ) {
+
+            throw new Error(
+                result.error ||
+                "Could not check payment status."
+            );
+
+        }
+
+
+        /* =========================
+           PAYMENT SUCCESS
+        ========================= */
+
+        if (
+            result.paymentStatus === "PAID" ||
+            result.status === "paid" ||
+            result.payment?.status === "SUCCESS"
+        ) {
+
+            stopPaymentPolling();
+
+            const receipt =
+                result.payment?.mpesaReceiptNumber ||
+                result.order?.payment?.mpesaReceiptNumber ||
+                null;
+
+            showPaymentStatus(
+                "success",
+                "✓ Payment Successful",
+                "Your M-Pesa payment has been received. Your order is now confirmed.",
+                receipt
+            );
+
+            if (submitButton) {
+
+                submitButton.disabled = true;
+
+                submitButton.textContent =
+                    "Payment Confirmed";
+
+            }
+
+
+            /* =========================
+               CLEAR CART
+            ========================= */
+
+            try {
+
+                localStorage.removeItem(
+                    "priorityfixa_cart"
+                );
+
+            } catch (storageError) {
+
+                console.warn(
+                    "Could not clear cart:",
+                    storageError
+                );
+
+            }
+
+            updateCartCount();
+
+            return;
+
+        }
+
+
+        /* =========================
+           PAYMENT FAILED
+        ========================= */
+
+        if (
+            result.paymentStatus === "FAILED" ||
+            result.status === "payment_failed" ||
+            result.payment?.status === "FAILED"
+        ) {
+
+            stopPaymentPolling();
+
+            const reason =
+                result.payment?.resultDescription ||
+                "The M-Pesa payment was not completed.";
+
+            showPaymentStatus(
+                "error",
+                "Payment Not Completed",
+                reason
+            );
+
+            if (submitButton) {
+
+                submitButton.disabled = false;
+
+                submitButton.textContent =
+                    "Try Payment Again";
+
+            }
+
+            return;
+
+        }
+
+
+        /* =========================
+           STILL WAITING
+        ========================= */
+
+        if (paymentPollingActive) {
+
+            paymentPollingTimer =
+                setTimeout(
+                    () => {
+
+                        checkPaymentStatus(
+                            orderId,
+                            submitButton
+                        );
+
+                    },
+                    3000
+                );
+
+        }
+
+    } catch (error) {
+
+        console.warn(
+            "Payment status check failed:",
+            error
+        );
+
+
+        /*
+         * A temporary status-request failure
+         * should NOT immediately tell the
+         * customer that payment failed.
+         */
+
+        if (paymentPollingActive) {
+
+            paymentPollingTimer =
+                setTimeout(
+                    () => {
+
+                        checkPaymentStatus(
+                            orderId,
+                            submitButton
+                        );
+
+                    },
+                    5000
+                );
+
+        }
+
+    }
+
+}
+
+
+/* =========================
+   START PAYMENT POLLING
+========================= */
+
+function startPaymentPolling(
+    orderId,
+    submitButton
+) {
+
+    stopPaymentPolling();
+
+    paymentPollingActive = true;
+
+    showPaymentStatus(
+        "pending",
+        "Payment Request Sent",
+        "Check your phone and enter your M-Pesa PIN. We are waiting for payment confirmation..."
+    );
+
+    checkPaymentStatus(
+        orderId,
+        submitButton
+    );
+
+}
+
+
+/* =========================
+   CREATE ORDER + PAYMENT
 ========================= */
 
 async function handleCheckoutSubmit(event) {
@@ -203,6 +554,7 @@ async function handleCheckoutSubmit(event) {
         );
 
         return;
+
     }
 
 
@@ -255,7 +607,6 @@ async function handleCheckoutSubmit(event) {
         console.log(
             "Sending order to API..."
         );
-
 
         const orderResponse =
             await fetch(
@@ -317,7 +668,7 @@ async function handleCheckoutSubmit(event) {
 
 
         /* =========================
-           START M-PESA PAYMENT
+           START M-PESA
         ========================= */
 
         if (submitButton) {
@@ -388,39 +739,43 @@ async function handleCheckoutSubmit(event) {
 
 
         /* =========================
-           PAYMENT REQUEST SUCCESS
+           STK PUSH SUCCESS
         ========================= */
 
         if (submitButton) {
 
             submitButton.textContent =
-                "M-Pesa Request Sent";
+                "Waiting for Payment...";
 
         }
 
 
-        alert(
-
-            "Order created successfully.\n\n" +
-
-            "Order ID: " +
-            order.id +
-
-            "\n\n" +
-
-            "A payment request has been sent to " +
-            customer.phone +
-
-            ".\n\n" +
-
-            "Please check your phone and complete the M-Pesa payment."
-
-        );
+        const checkoutRequestId =
+            paymentResult.payment?.checkoutRequestId ||
+            paymentResult.mpesa?.CheckoutRequestID ||
+            null;
 
 
         console.log(
             "STK Push initiated:",
-            paymentResult.response
+            checkoutRequestId
+        );
+
+
+        showPaymentStatus(
+            "pending",
+            "M-Pesa Request Sent",
+            "A payment request has been sent to your phone. Enter your M-Pesa PIN to complete the payment."
+        );
+
+
+        /* =========================
+           BEGIN POLLING
+        ========================= */
+
+        startPaymentPolling(
+            order.id,
+            submitButton
         );
 
 
@@ -429,6 +784,16 @@ async function handleCheckoutSubmit(event) {
         console.error(
             "Checkout error:",
             error
+        );
+
+
+        stopPaymentPolling();
+
+
+        showPaymentStatus(
+            "error",
+            "Checkout Error",
+            error.message
         );
 
 
@@ -441,20 +806,10 @@ async function handleCheckoutSubmit(event) {
         );
 
 
-    } finally {
-
-        if (submitButton) {
-
-            submitButton.disabled = false;
-
-            submitButton.textContent =
-                "Continue to Payment";
-
-        }
-
     }
 
 }
+
 
 /* =========================
    BUSINESS INFORMATION
@@ -472,6 +827,7 @@ function loadCheckoutBusinessInformation() {
         );
 
         return;
+
     }
 
 
@@ -545,3 +901,4 @@ document.addEventListener(
     "DOMContentLoaded",
     initializeCheckout
 );
+```
