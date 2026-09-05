@@ -39,6 +39,15 @@ function getTimestamp() {
 export default {
     async fetch(request, env) {
         const url = new URL(request.url);
+        // TEMPORARY KV BINDING TEST
+if (url.pathname === "/debug/bindings" && request.method === "GET") {
+    return jsonResponse({
+        success: true,
+        worker: "priorityfixa-income-api",
+        ordersKV: !!env.ORDERS_KV,
+        paymentsKV: !!env.PAYMENTS_KV
+    });
+}
 
         if (request.method === "OPTIONS") {
             return new Response(null, {
