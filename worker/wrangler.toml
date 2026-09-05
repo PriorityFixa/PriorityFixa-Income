@@ -1,3 +1,11 @@
 name = "priorityfixa-commerce-api"
 main = "index.js"
 compatibility_date = "2026-08-22"
+
+[[kv_namespaces]]
+binding = "ORDERS_KV"
+id = "36880d658e9740679958f7dc4b53d1bf"
+
+[[kv_namespaces]]
+binding = "PAYMENTS_KV"
+id = "505eeace17b84b01ad513d22768b9e78"
