@@ -29,8 +29,8 @@ function formatPrice(amount) {
     const currency =
         BUSINESS_CONFIG.location.currencySymbol;
 
-    return `${currency} ${Number(amount).toLocaleString()}`;
-
+  
+      return currency + " " + Number(amount).toLocaleString();
 }
 
 
