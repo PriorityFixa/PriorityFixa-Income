@@ -55,7 +55,33 @@ if (url.pathname === "/debug/bindings" && request.method === "GET") {
                 headers: corsHeaders
             });
         }
+// TEMPORARY ORDER STATUS TEST
+if (url.pathname === "/debug/order" && request.method === "GET") {
+    const orderId = url.searchParams.get("orderId");
 
+    if (!orderId) {
+        return jsonResponse({
+            success: false,
+            error: "Missing orderId"
+        }, 400);
+    }
+
+    const order = await env.ORDERS_KV.get(
+        `ORDER:${orderId}`,
+        "json"
+    );
+
+    const payment = await env.PAYMENTS_KV.get(
+        `ORDER_PAYMENT:${orderId}`,
+        "json"
+    );
+
+    return jsonResponse({
+        success: true,
+        order,
+        payment
+    });
+}
         // ---------------------------------------
         // HEALTH CHECK
         // ---------------------------------------
