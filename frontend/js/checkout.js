@@ -1,20 +1,21 @@
 ```javascript
 /* =========================================================
    PRIORITYFIXA COMMERCE — CHECKOUT
+   Complete checkout + M-Pesa payment polling
 ========================================================= */
 
 
-/* =========================
+/* =========================================================
    API
-========================= */
+========================================================= */
 
 const API_URL =
   "https://priorityfixa-income-api.priorityfixa.workers.dev";
 
 
-/* =========================
+/* =========================================================
    PAYMENT POLLING STATE
-========================= */
+========================================================= */
 
 let paymentPollingTimer = null;
 let paymentPollingActive = false;
@@ -23,31 +24,40 @@ let paymentPollingStartedAt = null;
 const PAYMENT_POLLING_TIMEOUT = 5 * 60 * 1000;
 
 
-/* =========================
+/* =========================================================
    FORMAT PRICE
-========================= */
+========================================================= */
 
 function formatPrice(amount) {
-  const currency =
+  let currency = "KSh";
+
+  if (
     typeof BUSINESS_CONFIG !== "undefined" &&
     BUSINESS_CONFIG.location &&
     BUSINESS_CONFIG.location.currencySymbol
-      ? BUSINESS_CONFIG.location.currencySymbol
-      : "KSh";
+  ) {
+    currency =
+      BUSINESS_CONFIG.location.currencySymbol;
+  }
 
   const numericAmount = Number(amount);
+
+  const safeAmount =
+    Number.isFinite(numericAmount)
+      ? numericAmount
+      : 0;
 
   return (
     currency +
     " " +
-    (Number.isFinite(numericAmount) ? numericAmount : 0).toLocaleString()
+    safeAmount.toLocaleString()
   );
 }
 
 
-/* =========================
-   BASIC HTML ESCAPE
-========================= */
+/* =========================================================
+   HTML ESCAPE
+========================================================= */
 
 function escapeHTML(value) {
   return String(value)
@@ -59,240 +69,130 @@ function escapeHTML(value) {
 }
 
 
-/* =========================
+/* =========================================================
    CHECKOUT FORM VISIBILITY
-========================= */
+========================================================= */
 
 function setCheckoutFormVisible(visible) {
-  const form = document.getElementById("checkout-form");
+  const form =
+    document.getElementById(
+      "checkout-form"
+    );
 
   if (!form) {
     return;
   }
 
   const formContainer =
-    form.closest(".checkout-form-container");
+    form.closest(
+      ".checkout-form-container"
+    );
 
   const target =
     formContainer || form;
 
   if (visible) {
     target.style.display = "";
-    target.removeAttribute("aria-hidden");
+    target.removeAttribute(
+      "aria-hidden"
+    );
   } else {
     target.style.display = "none";
-    target.setAttribute("aria-hidden", "true");
-  }
-}
-
-
-/* =========================
-   RENDER ORDER SUMMARY
-========================= */
-
-function renderCheckoutSummary() {
-  const container =
-    document.getElementById("checkout-summary");
-
-  if (!container) {
-    console.warn(
-      "Checkout summary container not found."
+    target.setAttribute(
+      "aria-hidden",
+      "true"
     );
-    return;
-  }
-
-  const cart = getCart();
-
-  if (!Array.isArray(cart) || cart.length === 0) {
-    container.innerHTML =
-      '<div class="empty-cart">' +
-      "<h2>Your cart is empty</h2>" +
-      "<p>Add products before checkout.</p>" +
-      '<a href="index.html" class="add-to-cart">Continue Shopping</a>' +
-      "</div>";
-
-    if (typeof updateCartCount === "function") {
-      updateCartCount();
-    }
-
-    return;
-  }
-
-  let total = 0;
-
-  const itemsHTML = cart
-    .map((item) => {
-      const quantity = Number(item.quantity);
-      const price = Number(item.price);
-
-      const safeQuantity =
-        Number.isFinite(quantity) && quantity > 0
-          ? quantity
-          : 1;
-
-      const safePrice =
-        Number.isFinite(price) && price >= 0
-          ? price
-          : 0;
-
-      const subtotal =
-        safePrice * safeQuantity;
-
-      total += subtotal;
-
-      return (
-        '<div class="checkout-item">' +
-        "<div>" +
-        "<strong>" +
-        escapeHTML(item.name || "Product") +
-        "</strong>" +
-        "<p>" +
-        safeQuantity +
-        " &times; " +
-        formatPrice(safePrice) +
-        "</p>" +
-        "</div>" +
-        "<strong>" +
-        formatPrice(subtotal) +
-        "</strong>" +
-        "</div>"
-      );
-    })
-    .join("");
-
-  container.innerHTML =
-    "<h2>Order Summary</h2>" +
-    '<div class="checkout-items">' +
-    itemsHTML +
-    "</div>" +
-    '<div class="checkout-total">' +
-    "<span>Total</span>" +
-    "<strong>" +
-    formatPrice(total) +
-    "</strong>" +
-    "</div>";
-
-  if (typeof updateCartCount === "function") {
-    updateCartCount();
   }
 }
 
 
-/* =========================
-   CUSTOMER DETAILS
-========================= */
+/* =========================================================
+   PAYMENT STATUS CONTAINER
+========================================================= */
 
-function getCustomerDetails() {
-  const nameInput =
-    document.getElementById("customer-name");
+/*
+  IMPORTANT:
 
-  const phoneInput =
-    document.getElementById("customer-phone");
+  The payment status container is inserted as a
+  SIBLING of .checkout-form-container.
 
-  const emailInput =
-    document.getElementById("customer-email");
+  We do NOT put it inside the form container because
+  the form container gets hidden during M-Pesa payment.
+*/
 
-  const locationInput =
-    document.getElementById("customer-location");
+function getPaymentStatusContainer() {
+  let statusContainer =
+    document.getElementById(
+      "payment-status"
+    );
 
-  return {
-    name: nameInput
-      ? nameInput.value.trim()
-      : "",
+  if (statusContainer) {
+    return statusContainer;
+  }
 
-    phone: phoneInput
-      ? phoneInput.value.trim()
-      : "",
+  const formContainer =
+    document.querySelector(
+      ".checkout-form-container"
+    );
 
-    email: emailInput
-      ? emailInput.value.trim()
-      : "",
+  if (
+    !formContainer ||
+    !formContainer.parentNode
+  ) {
+    console.warn(
+      "Checkout form container not found."
+    );
 
-    location: locationInput
-      ? locationInput.value.trim()
-      : "",
-  };
+    return null;
+  }
+
+  statusContainer =
+    document.createElement("div");
+
+  statusContainer.id =
+    "payment-status";
+
+  statusContainer.setAttribute(
+    "role",
+    "status"
+  );
+
+  statusContainer.setAttribute(
+    "aria-live",
+    "polite"
+  );
+
+  statusContainer.style.display =
+    "none";
+
+  /*
+    Insert BEFORE the form container.
+  */
+
+  formContainer.parentNode.insertBefore(
+    statusContainer,
+    formContainer
+  );
+
+  return statusContainer;
 }
 
 
-/* =========================
-   VALIDATE CUSTOMER DETAILS
-========================= */
-
-function validateCustomerDetails(customer) {
-  if (!customer.name) {
-    return "Please enter your name.";
-  }
-
-  if (!customer.phone) {
-    return "Please enter your M-Pesa phone number.";
-  }
-
-  if (!customer.email) {
-    return "Please enter your email address.";
-  }
-
-  if (!customer.location) {
-    return "Please enter your location.";
-  }
-
-  return null;
-}
-
-
-/* =========================
-   PAYMENT STATUS UI
-========================= */
+/* =========================================================
+   SHOW PAYMENT STATUS
+========================================================= */
 
 function showPaymentStatus(
   type,
   title,
   message,
-  receipt = null
+  receipt
 ) {
-  let statusContainer =
-    document.getElementById("payment-status");
+  const statusContainer =
+    getPaymentStatusContainer();
 
   if (!statusContainer) {
-    const formContainer =
-      document.querySelector(
-        ".checkout-form-container"
-      );
-
-    const form =
-      document.getElementById("checkout-form");
-
-    const parent =
-      formContainer ||
-      (form ? form.parentNode : null);
-
-    if (!parent) {
-      console.warn(
-        "Checkout form container not found."
-      );
-      return;
-    }
-
-    statusContainer =
-      document.createElement("div");
-
-    statusContainer.id =
-      "payment-status";
-
-    statusContainer.setAttribute(
-      "role",
-      "status"
-    );
-
-    statusContainer.setAttribute(
-      "aria-live",
-      "polite"
-    );
-
-    parent.insertBefore(
-      statusContainer,
-      parent.firstChild
-    );
+    return;
   }
 
   let receiptHTML = "";
@@ -319,18 +219,30 @@ function showPaymentStatus(
     receiptHTML +
     "</div>";
 
-  statusContainer.style.display = "block";
+  statusContainer.style.display =
+    "block";
 
-  statusContainer.scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-  });
+  /*
+    Scroll the payment message into view.
+  */
+
+  try {
+    statusContainer.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+  } catch (scrollError) {
+    console.warn(
+      "Could not scroll payment status into view:",
+      scrollError
+    );
+  }
 }
 
 
-/* =========================
+/* =========================================================
    HIDE PAYMENT STATUS
-========================= */
+========================================================= */
 
 function hidePaymentStatus() {
   const statusContainer =
@@ -342,28 +254,262 @@ function hidePaymentStatus() {
     return;
   }
 
-  statusContainer.style.display = "none";
+  statusContainer.style.display =
+    "none";
 }
 
 
-/* =========================
-   STOP PAYMENT POLLING
-========================= */
+/* =========================================================
+   RENDER CHECKOUT SUMMARY
+========================================================= */
 
-function stopPaymentPolling() {
-  paymentPollingActive = false;
-  paymentPollingStartedAt = null;
+function renderCheckoutSummary() {
+  const container =
+    document.getElementById(
+      "checkout-summary"
+    );
 
-  if (paymentPollingTimer) {
-    clearTimeout(paymentPollingTimer);
-    paymentPollingTimer = null;
+  if (!container) {
+    console.warn(
+      "Checkout summary container not found."
+    );
+
+    return;
+  }
+
+  if (
+    typeof getCart !==
+    "function"
+  ) {
+    console.error(
+      "getCart() is not available."
+    );
+
+    return;
+  }
+
+  const cart = getCart();
+
+  if (
+    !Array.isArray(cart) ||
+    cart.length === 0
+  ) {
+    container.innerHTML =
+      '<div class="empty-cart">' +
+      "<h2>Your cart is empty</h2>" +
+      "<p>Add products before checkout.</p>" +
+      '<a href="index.html" class="add-to-cart">' +
+      "Continue Shopping" +
+      "</a>" +
+      "</div>";
+
+    if (
+      typeof updateCartCount ===
+      "function"
+    ) {
+      updateCartCount();
+    }
+
+    return;
+  }
+
+  let total = 0;
+
+  const itemsHTML =
+    cart
+      .map(function (item) {
+        const quantity =
+          Number(item.quantity);
+
+        const price =
+          Number(item.price);
+
+        const safeQuantity =
+          Number.isFinite(quantity) &&
+          quantity > 0
+            ? quantity
+            : 1;
+
+        const safePrice =
+          Number.isFinite(price) &&
+          price >= 0
+            ? price
+            : 0;
+
+        const subtotal =
+          safePrice *
+          safeQuantity;
+
+        total += subtotal;
+
+        return (
+          '<div class="checkout-item">' +
+
+          "<div>" +
+
+          "<strong>" +
+          escapeHTML(
+            item.name ||
+            "Product"
+          ) +
+          "</strong>" +
+
+          "<p>" +
+          safeQuantity +
+          " &times; " +
+          formatPrice(
+            safePrice
+          ) +
+          "</p>" +
+
+          "</div>" +
+
+          "<strong>" +
+          formatPrice(
+            subtotal
+          ) +
+          "</strong>" +
+
+          "</div>"
+        );
+      })
+      .join("");
+
+  container.innerHTML =
+    "<h2>Order Summary</h2>" +
+
+    '<div class="checkout-items">' +
+    itemsHTML +
+    "</div>" +
+
+    '<div class="checkout-total">' +
+
+    "<span>Total</span>" +
+
+    "<strong>" +
+    formatPrice(total) +
+    "</strong>" +
+
+    "</div>";
+
+  if (
+    typeof updateCartCount ===
+    "function"
+  ) {
+    updateCartCount();
   }
 }
 
 
-/* =========================
+/* =========================================================
+   GET CUSTOMER DETAILS
+========================================================= */
+
+function getCustomerDetails() {
+  const nameInput =
+    document.getElementById(
+      "customer-name"
+    );
+
+  const phoneInput =
+    document.getElementById(
+      "customer-phone"
+    );
+
+  const emailInput =
+    document.getElementById(
+      "customer-email"
+    );
+
+  const locationInput =
+    document.getElementById(
+      "customer-location"
+    );
+
+  return {
+    name:
+      nameInput
+        ? nameInput.value.trim()
+        : "",
+
+    phone:
+      phoneInput
+        ? phoneInput.value.trim()
+        : "",
+
+    email:
+      emailInput
+        ? emailInput.value.trim()
+        : "",
+
+    location:
+      locationInput
+        ? locationInput.value.trim()
+        : ""
+  };
+}
+
+
+/* =========================================================
+   VALIDATE CUSTOMER DETAILS
+========================================================= */
+
+function validateCustomerDetails(
+  customer
+) {
+  if (!customer.name) {
+    return (
+      "Please enter your name."
+    );
+  }
+
+  if (!customer.phone) {
+    return (
+      "Please enter your M-Pesa phone number."
+    );
+  }
+
+  if (!customer.email) {
+    return (
+      "Please enter your email address."
+    );
+  }
+
+  if (!customer.location) {
+    return (
+      "Please enter your location."
+    );
+  }
+
+  return null;
+}
+
+
+/* =========================================================
+   STOP PAYMENT POLLING
+========================================================= */
+
+function stopPaymentPolling() {
+  paymentPollingActive =
+    false;
+
+  paymentPollingStartedAt =
+    null;
+
+  if (paymentPollingTimer) {
+    clearTimeout(
+      paymentPollingTimer
+    );
+
+    paymentPollingTimer =
+      null;
+  }
+}
+
+
+/* =========================================================
    CHECK PAYMENT STATUS
-========================= */
+========================================================= */
 
 async function checkPaymentStatus(
   orderId,
@@ -373,6 +519,7 @@ async function checkPaymentStatus(
     console.error(
       "Cannot check payment status: order ID missing."
     );
+
     return;
   }
 
@@ -380,9 +527,10 @@ async function checkPaymentStatus(
     return;
   }
 
-  /* =========================
-     POLLING TIMEOUT
-  ========================= */
+
+  /* =======================================================
+     TIMEOUT
+  ======================================================= */
 
   if (
     paymentPollingStartedAt &&
@@ -392,7 +540,9 @@ async function checkPaymentStatus(
   ) {
     stopPaymentPolling();
 
-    setCheckoutFormVisible(true);
+    setCheckoutFormVisible(
+      true
+    );
 
     showPaymentStatus(
       "error",
@@ -401,7 +551,9 @@ async function checkPaymentStatus(
     );
 
     if (submitButton) {
-      submitButton.disabled = false;
+      submitButton.disabled =
+        false;
+
       submitButton.textContent =
         "Check Payment Again";
     }
@@ -410,26 +562,42 @@ async function checkPaymentStatus(
   }
 
 
+  /* =======================================================
+     REQUEST PAYMENT STATUS
+  ======================================================= */
+
   try {
     console.log(
       "Checking payment status:",
       orderId
     );
 
+    const statusURL =
+      API_URL +
+      "/orders/status?orderId=" +
+      encodeURIComponent(
+        orderId
+      );
+
     const response =
       await fetch(
-        `${API_URL}/orders/status?orderId=${encodeURIComponent(
-          orderId
-        )}`,
+        statusURL,
         {
           method: "GET",
+
           cache: "no-store",
+
           headers: {
             Accept:
-              "application/json",
-          },
+              "application/json"
+          }
         }
       );
+
+
+    /* =====================================================
+       PARSE RESPONSE
+    ===================================================== */
 
     let result;
 
@@ -447,82 +615,155 @@ async function checkPaymentStatus(
       result
     );
 
+
+    /* =====================================================
+       API ERROR
+    ===================================================== */
+
     if (
       !response.ok ||
       !result.success
     ) {
       throw new Error(
         result.error ||
-          "Could not check payment status."
+        "Could not check payment status."
       );
     }
+
+
+    /* =====================================================
+       NORMALIZE STATUS
+    ===================================================== */
+
+    const paymentStatus =
+      String(
+        result.paymentStatus ||
+        ""
+      ).toUpperCase();
+
+    const orderStatus =
+      String(
+        result.status ||
+        ""
+      ).toUpperCase();
+
+    const nestedPaymentStatus =
+      String(
+        result.payment &&
+        result.payment.status
+          ? result.payment.status
+          : ""
+      ).toUpperCase();
 
 
     /* =====================================================
        PAYMENT SUCCESS
     ===================================================== */
 
-    if (
-      result.paymentStatus === "PAID" ||
-      result.paymentStatus === "paid" ||
-      result.status === "paid" ||
-      result.status === "PAID" ||
-      result.payment?.status === "SUCCESS" ||
-      result.payment?.status === "PAID"
-    ) {
+    const paymentSuccessful =
+      paymentStatus === "PAID" ||
+      orderStatus === "PAID" ||
+      orderStatus === "PAYMENT_PAID" ||
+      nestedPaymentStatus ===
+        "PAID" ||
+      nestedPaymentStatus ===
+        "SUCCESS";
+
+    if (paymentSuccessful) {
       console.log(
         "PAYMENT SUCCESS — PAID"
       );
 
       stopPaymentPolling();
 
+
       /*
         Keep the customer form hidden.
       */
-      setCheckoutFormVisible(false);
+
+      setCheckoutFormVisible(
+        false
+      );
+
+
+      /* ===================================================
+         FIND RECEIPT
+      =================================================== */
+
+      const payment =
+        result.payment ||
+        {};
+
+      const order =
+        result.order ||
+        {};
 
       const receipt =
-        result.payment
-          ?.mpesaReceiptNumber ||
-        result.payment
-          ?.MpesaReceiptNumber ||
-        result.payment
-          ?.receiptNumber ||
-        result.order
-          ?.payment
-          ?.mpesaReceiptNumber ||
-        result.order
-          ?.payment
-          ?.MpesaReceiptNumber ||
+        payment.mpesaReceiptNumber ||
+        payment.MpesaReceiptNumber ||
+        payment.receiptNumber ||
+        payment.mpesa_receipt_number ||
+        order.mpesaReceiptNumber ||
+        order.MpesaReceiptNumber ||
+        (
+          order.payment &&
+          (
+            order.payment
+              .mpesaReceiptNumber ||
+            order.payment
+              .MpesaReceiptNumber ||
+            order.payment
+              .receiptNumber
+          )
+        ) ||
         null;
+
+
+      /* ===================================================
+         FIND ORDER NUMBER
+      =================================================== */
 
       const orderNumber =
         result.orderId ||
-        result.order?.id ||
+        order.id ||
         orderId;
 
+
+      /* ===================================================
+         FIND AMOUNT
+      =================================================== */
+
       const amount =
-        result.order?.total ??
-        result.amount ??
-        null;
+        order.total !== undefined &&
+        order.total !== null
+          ? order.total
+          : result.amount !== undefined &&
+            result.amount !== null
+            ? result.amount
+            : null;
 
 
-      /* =========================
+      /* ===================================================
          SUCCESS MESSAGE
-      ========================= */
+      =================================================== */
 
       let successMessage =
         "Your M-Pesa payment has been received. Your order is now confirmed.";
 
       if (orderNumber) {
         successMessage +=
-          ` Order number: ${orderNumber}.`;
+          " Order number: " +
+          orderNumber +
+          ".";
       }
 
       if (amount !== null) {
         successMessage +=
-          ` Amount paid: ${formatPrice(amount)}.`;
+          " Amount paid: " +
+          formatPrice(amount) +
+          ".";
       }
+
 
       showPaymentStatus(
         "success",
@@ -532,20 +773,22 @@ async function checkPaymentStatus(
       );
 
 
-      /* =========================
+      /* ===================================================
          UPDATE BUTTON
-      ========================= */
+      =================================================== */
 
       if (submitButton) {
-        submitButton.disabled = true;
+        submitButton.disabled =
+          true;
+
         submitButton.textContent =
           "Payment Confirmed";
       }
 
 
-      /* =========================
+      /* ===================================================
          CLEAR CART
-      ========================= */
+      =================================================== */
 
       try {
         localStorage.removeItem(
@@ -557,6 +800,7 @@ async function checkPaymentStatus(
           storageError
         );
       }
+
 
       if (
         typeof updateCartCount ===
@@ -573,22 +817,27 @@ async function checkPaymentStatus(
        PAYMENT FAILED
     ===================================================== */
 
-    if (
-      result.paymentStatus === "FAILED" ||
-      result.paymentStatus === "failed" ||
-      result.status === "payment_failed" ||
-      result.status === "FAILED" ||
-      result.payment?.status === "FAILED"
-    ) {
+    const paymentFailed =
+      paymentStatus === "FAILED" ||
+      paymentStatus ===
+        "FAILURE" ||
+      orderStatus === "FAILED" ||
+      orderStatus ===
+        "PAYMENT_FAILED" ||
+      nestedPaymentStatus ===
+        "FAILED";
+
+    if (paymentFailed) {
       stopPaymentPolling();
 
-      setCheckoutFormVisible(true);
+      setCheckoutFormVisible(
+        true
+      );
 
       const reason =
-        result.payment
-          ?.resultDescription ||
-        result.payment
-          ?.ResultDescription ||
+        payment.resultDescription ||
+        payment.ResultDescription ||
+        payment.resultDesc ||
         result.error ||
         "The M-Pesa payment was not completed.";
 
@@ -599,7 +848,9 @@ async function checkPaymentStatus(
       );
 
       if (submitButton) {
-        submitButton.disabled = false;
+        submitButton.disabled =
+          false;
+
         submitButton.textContent =
           "Try Payment Again";
       }
@@ -612,15 +863,26 @@ async function checkPaymentStatus(
        PAYMENT CANCELLED
     ===================================================== */
 
-    if (
-      result.paymentStatus === "CANCELLED" ||
-      result.paymentStatus === "cancelled" ||
-      result.status === "cancelled" ||
-      result.payment?.status === "CANCELLED"
-    ) {
+    const paymentCancelled =
+      paymentStatus ===
+        "CANCELLED" ||
+      paymentStatus ===
+        "CANCELED" ||
+      orderStatus ===
+        "CANCELLED" ||
+      orderStatus ===
+        "CANCELED" ||
+      nestedPaymentStatus ===
+        "CANCELLED" ||
+      nestedPaymentStatus ===
+        "CANCELED";
+
+    if (paymentCancelled) {
       stopPaymentPolling();
 
-      setCheckoutFormVisible(true);
+      setCheckoutFormVisible(
+        true
+      );
 
       showPaymentStatus(
         "error",
@@ -629,7 +891,9 @@ async function checkPaymentStatus(
       );
 
       if (submitButton) {
-        submitButton.disabled = false;
+        submitButton.disabled =
+          false;
+
         submitButton.textContent =
           "Try Payment Again";
       }
@@ -645,7 +909,7 @@ async function checkPaymentStatus(
     if (paymentPollingActive) {
       paymentPollingTimer =
         setTimeout(
-          () => {
+          function () {
             checkPaymentStatus(
               orderId,
               submitButton
@@ -662,15 +926,20 @@ async function checkPaymentStatus(
       error
     );
 
+
     /*
-      Network/API errors do not mean
-      that the M-Pesa payment failed.
+      IMPORTANT:
+
+      A temporary API/network error does NOT mean
+      the customer's M-Pesa payment failed.
+
+      Continue polling.
     */
 
     if (paymentPollingActive) {
       paymentPollingTimer =
         setTimeout(
-          () => {
+          function () {
             checkPaymentStatus(
               orderId,
               submitButton
@@ -683,9 +952,9 @@ async function checkPaymentStatus(
 }
 
 
-/* =========================
+/* =========================================================
    START PAYMENT POLLING
-========================= */
+========================================================= */
 
 function startPaymentPolling(
   orderId,
@@ -695,24 +964,31 @@ function startPaymentPolling(
     console.error(
       "Cannot start payment polling: order ID missing."
     );
+
     return;
   }
 
   stopPaymentPolling();
 
-  paymentPollingActive = true;
+  paymentPollingActive =
+    true;
+
   paymentPollingStartedAt =
     Date.now();
 
 
-  /*
-    IMPORTANT:
-    Hide the customer details form
-    immediately after STK Push starts.
-  */
+  /* =======================================================
+     HIDE CUSTOMER FORM
+  ======================================================= */
 
-  setCheckoutFormVisible(false);
+  setCheckoutFormVisible(
+    false
+  );
 
+
+  /* =======================================================
+     SHOW WAITING MESSAGE
+  ======================================================= */
 
   showPaymentStatus(
     "pending",
@@ -721,6 +997,10 @@ function startPaymentPolling(
   );
 
 
+  /* =======================================================
+     START FIRST STATUS CHECK
+  ======================================================= */
+
   checkPaymentStatus(
     orderId,
     submitButton
@@ -728,11 +1008,13 @@ function startPaymentPolling(
 }
 
 
-/* =========================
+/* =========================================================
    CREATE ORDER + PAYMENT
-========================= */
+========================================================= */
 
-async function handleCheckoutSubmit(event) {
+async function handleCheckoutSubmit(
+  event
+) {
   event.preventDefault();
 
   const form =
@@ -740,8 +1022,31 @@ async function handleCheckoutSubmit(event) {
 
   stopPaymentPolling();
 
+
+  /* =======================================================
+     GET CART
+  ======================================================= */
+
+  if (
+    typeof getCart !==
+    "function"
+  ) {
+    showPaymentStatus(
+      "error",
+      "Checkout Error",
+      "The shopping cart could not be loaded."
+    );
+
+    return;
+  }
+
   const cart =
     getCart();
+
+
+  /* =======================================================
+     EMPTY CART
+  ======================================================= */
 
   if (
     !Array.isArray(cart) ||
@@ -750,11 +1055,18 @@ async function handleCheckoutSubmit(event) {
     alert(
       "Your cart is empty."
     );
+
     return;
   }
 
+
+  /* =======================================================
+     CUSTOMER DETAILS
+  ======================================================= */
+
   const customer =
     getCustomerDetails();
+
 
   const validationError =
     validateCustomerDetails(
@@ -775,9 +1087,17 @@ async function handleCheckoutSubmit(event) {
     return;
   }
 
+
+  /* =======================================================
+     CALCULATE TOTAL
+  ======================================================= */
+
   const total =
     cart.reduce(
-      (sum, item) => {
+      function (
+        sum,
+        item
+      ) {
         const price =
           Number(item.price);
 
@@ -804,6 +1124,7 @@ async function handleCheckoutSubmit(event) {
       0
     );
 
+
   if (
     !Number.isFinite(total) ||
     total <= 0
@@ -814,6 +1135,11 @@ async function handleCheckoutSubmit(event) {
 
     return;
   }
+
+
+  /* =======================================================
+     SUBMIT BUTTON
+  ======================================================= */
 
   const submitButton =
     form.querySelector(
@@ -828,35 +1154,51 @@ async function handleCheckoutSubmit(event) {
       "Creating Order...";
   }
 
+
   try {
 
-    /* =========================
+    /* =====================================================
        CREATE ORDER
-    ========================= */
+    ===================================================== */
 
     console.log(
       "Sending order to API..."
     );
 
+
+    const orderURL =
+      API_URL +
+      "/orders";
+
+
     const orderResponse =
       await fetch(
-        `${API_URL}/orders`,
+        orderURL,
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
+
             Accept:
-              "application/json",
+              "application/json"
           },
+
           body: JSON.stringify({
             customer:
               customer,
+
             items:
-              cart,
-          }),
+              cart
+          })
         }
       );
+
+
+    /* =====================================================
+       PARSE ORDER RESPONSE
+    ===================================================== */
 
     let orderResult;
 
@@ -869,10 +1211,12 @@ async function handleCheckoutSubmit(event) {
       );
     }
 
+
     console.log(
       "Order API response:",
       orderResult
     );
+
 
     if (
       !orderResponse.ok ||
@@ -880,12 +1224,19 @@ async function handleCheckoutSubmit(event) {
     ) {
       throw new Error(
         orderResult.error ||
-          "Order could not be created."
+        orderResult.message ||
+        "Order could not be created."
       );
     }
 
+
+    /* =====================================================
+       GET ORDER
+    ===================================================== */
+
     const order =
       orderResult.order;
+
 
     if (
       !order ||
@@ -896,46 +1247,64 @@ async function handleCheckoutSubmit(event) {
       );
     }
 
+
     console.log(
       "Order created:",
       order
     );
 
 
-    /* =========================
+    /* =====================================================
        START M-PESA
-    ========================= */
+    ===================================================== */
 
     if (submitButton) {
       submitButton.textContent =
         "Requesting M-Pesa...";
     }
 
+
     console.log(
       "Starting M-Pesa payment..."
     );
 
+
+    const paymentURL =
+      API_URL +
+      "/payments/mpesa";
+
+
     const paymentResponse =
       await fetch(
-        `${API_URL}/payments/mpesa`,
+        paymentURL,
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
+
             Accept:
-              "application/json",
+              "application/json"
           },
+
           body: JSON.stringify({
             orderId:
               order.id,
+
             amount:
               total,
+
             phone:
-              customer.phone,
-          }),
+              customer.phone
+          })
         }
       );
+
+
+    /* =====================================================
+       PARSE PAYMENT RESPONSE
+    ===================================================== */
 
     let paymentResult;
 
@@ -948,10 +1317,12 @@ async function handleCheckoutSubmit(event) {
       );
     }
 
+
     console.log(
       "M-Pesa response:",
       paymentResult
     );
+
 
     if (
       !paymentResponse.ok ||
@@ -959,33 +1330,43 @@ async function handleCheckoutSubmit(event) {
     ) {
       throw new Error(
         paymentResult.error ||
-          paymentResult.message ||
-          "M-Pesa payment could not be initiated."
+        paymentResult.message ||
+        "M-Pesa payment could not be initiated."
       );
     }
 
 
-    /* =========================
+    /* =====================================================
        GET CHECKOUT REQUEST ID
-    ========================= */
+    ===================================================== */
+
+    const paymentObject =
+      paymentResult.payment ||
+      {};
+
+    const mpesaObject =
+      paymentResult.mpesa ||
+      {};
+
 
     const checkoutRequestId =
-      paymentResult.payment
-        ?.checkoutRequestId ||
-      paymentResult.payment
-        ?.CheckoutRequestID ||
-      paymentResult.mpesa
-        ?.checkoutRequestId ||
-      paymentResult.mpesa
-        ?.CheckoutRequestID ||
+      paymentObject.checkoutRequestId ||
+      paymentObject.CheckoutRequestID ||
+      paymentObject.checkout_request_id ||
+      mpesaObject.checkoutRequestId ||
+      mpesaObject.CheckoutRequestID ||
+      mpesaObject.checkout_request_id ||
       paymentResult.CheckoutRequestID ||
       paymentResult.checkoutRequestId ||
+      paymentResult.checkout_request_id ||
       null;
+
 
     console.log(
       "STK Push initiated:",
       checkoutRequestId
     );
+
 
     if (!checkoutRequestId) {
       throw new Error(
@@ -994,14 +1375,15 @@ async function handleCheckoutSubmit(event) {
     }
 
 
-    /* =========================
+    /* =====================================================
        START WAITING SCREEN
-    ========================= */
+    ===================================================== */
 
     if (submitButton) {
       submitButton.textContent =
         "Waiting for Payment...";
     }
+
 
     startPaymentPolling(
       order.id,
@@ -1015,16 +1397,19 @@ async function handleCheckoutSubmit(event) {
       error
     );
 
+
     stopPaymentPolling();
 
+
     /*
-      If order/payment setup failed,
-      show the form again.
+      Show the customer form again
+      when checkout setup fails.
     */
 
     setCheckoutFormVisible(
       true
     );
+
 
     const message =
       error &&
@@ -1032,11 +1417,13 @@ async function handleCheckoutSubmit(event) {
         ? error.message
         : "Something went wrong during checkout.";
 
+
     showPaymentStatus(
       "error",
       "Checkout Error",
       message
     );
+
 
     if (submitButton) {
       submitButton.disabled =
@@ -1046,17 +1433,18 @@ async function handleCheckoutSubmit(event) {
         "Try Again";
     }
 
+
     alert(
       "There was a problem with your order or payment.\n\n" +
-        message
+      message
     );
   }
 }
 
 
-/* =========================
+/* =========================================================
    BUSINESS INFORMATION
-========================= */
+========================================================= */
 
 function loadCheckoutBusinessInformation() {
   if (
@@ -1066,24 +1454,29 @@ function loadCheckoutBusinessInformation() {
     console.error(
       "BUSINESS_CONFIG is not loaded."
     );
+
     return;
   }
+
 
   const businessName =
     document.getElementById(
       "business-name"
     );
 
+
   const footerBusinessName =
     document.getElementById(
       "footer-business-name"
     );
+
 
   if (businessName) {
     businessName.textContent =
       BUSINESS_CONFIG.name ||
       "";
   }
+
 
   if (footerBusinessName) {
     footerBusinessName.textContent =
@@ -1093,34 +1486,51 @@ function loadCheckoutBusinessInformation() {
 }
 
 
-/* =========================
-   INITIALIZE
-========================= */
+/* =========================================================
+   INITIALIZE CHECKOUT
+========================================================= */
 
 function initializeCheckout() {
   console.log(
     "PriorityFixa Checkout initializing..."
   );
 
+
   loadCheckoutBusinessInformation();
+
+
+  /* =======================================================
+     CHECK CART FUNCTION
+  ======================================================= */
 
   if (
     typeof getCart !==
     "function"
   ) {
     console.error(
-      "getCart() is not defined. Make sure the cart JavaScript loads before checkout.js."
+      "getCart() is not defined. Make sure cart.js loads before checkout.js."
     );
 
     return;
   }
 
+
+  /* =======================================================
+     RENDER SUMMARY
+  ======================================================= */
+
   renderCheckoutSummary();
+
+
+  /* =======================================================
+     FIND FORM
+  ======================================================= */
 
   const form =
     document.getElementById(
       "checkout-form"
     );
+
 
   if (!form) {
     console.error(
@@ -1130,6 +1540,11 @@ function initializeCheckout() {
     return;
   }
 
+
+  /* =======================================================
+     PREVENT DOUBLE INITIALIZATION
+  ======================================================= */
+
   if (
     form.dataset.checkoutInitialized ===
     "true"
@@ -1137,22 +1552,32 @@ function initializeCheckout() {
     return;
   }
 
+
   form.dataset.checkoutInitialized =
     "true";
+
+
+  /* =======================================================
+     ADD SUBMIT HANDLER
+  ======================================================= */
 
   form.addEventListener(
     "submit",
     handleCheckoutSubmit
   );
 
-  /*
-    Make sure the form is visible
-    when checkout initially loads.
-  */
+
+  /* =======================================================
+     INITIAL FORM STATE
+  ======================================================= */
 
   setCheckoutFormVisible(
     true
   );
+
+
+  hidePaymentStatus();
+
 
   console.log(
     "PriorityFixa Checkout initialized successfully."
@@ -1160,12 +1585,19 @@ function initializeCheckout() {
 }
 
 
-/* =========================
+/* =========================================================
    DOM READY
-========================= */
+========================================================= */
 
-document.addEventListener(
-  "DOMContentLoaded",
-  initializeCheckout
-);
+if (
+  document.readyState ===
+  "loading"
+) {
+  document.addEventListener(
+    "DOMContentLoaded",
+    initializeCheckout
+  );
+} else {
+  initializeCheckout();
+}
 ```
