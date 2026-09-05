@@ -1,34 +1,74 @@
+```javascript
 /* =========================================================
    PRIORITYFIXA COMMERCE — CHECKOUT
 ========================================================= */
 
-/* API */
-const API_URL = "https://priorityfixa-income-api.priorityfixa.workers.dev";
 
-/* Payment polling state */
+/* =========================
+   API
+========================= */
+
+const API_URL =
+  "https://priorityfixa-income-api.priorityfixa.workers.dev";
+
+
+/* =========================
+   PAYMENT POLLING STATE
+========================= */
+
 let paymentPollingTimer = null;
 let paymentPollingActive = false;
+let paymentPollingStartedAt = null;
 
-/* Format price */
+/* Maximum time to wait for M-Pesa confirmation */
+const PAYMENT_POLLING_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+
+/* =========================
+   FORMAT PRICE
+========================= */
+
 function formatPrice(amount) {
-  const currency = BUSINESS_CONFIG.location.currencySymbol;
-  return currency + " " + Number(amount).toLocaleString();
+  const currency =
+    typeof BUSINESS_CONFIG !== "undefined" &&
+    BUSINESS_CONFIG.location &&
+    BUSINESS_CONFIG.location.currencySymbol
+      ? BUSINESS_CONFIG.location.currencySymbol
+      : "KSh";
+
+  const numericAmount = Number(amount);
+
+  return (
+    currency +
+    " " +
+    (Number.isFinite(numericAmount) ? numericAmount : 0).toLocaleString()
+  );
 }
 
-/* Render order summary */
+
+/* =========================
+   RENDER ORDER SUMMARY
+========================= */
+
 function renderCheckoutSummary() {
   const container = document.getElementById("checkout-summary");
-  if (!container) return;
+
+  if (!container) {
+    console.warn("Checkout summary container not found.");
+    return;
+  }
 
   const cart = getCart();
 
-  if (cart.length === 0) {
+  if (!Array.isArray(cart) || cart.length === 0) {
     container.innerHTML =
       '<div class="empty-cart">' +
       "<h2>Your cart is empty</h2>" +
       "<p>Add products before checkout.</p>" +
       '<a href="index.html" class="add-to-cart">Continue Shopping</a>' +
       "</div>";
+
+    updateCartCount();
     return;
   }
 
@@ -38,16 +78,32 @@ function renderCheckoutSummary() {
     .map((item) => {
       const quantity = Number(item.quantity);
       const price = Number(item.price);
-      const subtotal = price * quantity;
+
+      const safeQuantity =
+        Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+
+      const safePrice =
+        Number.isFinite(price) && price >= 0 ? price : 0;
+
+      const subtotal = safePrice * safeQuantity;
+
       total += subtotal;
 
       return (
         '<div class="checkout-item">' +
         "<div>" +
-        "<strong>" + item.name + "</strong>" +
-        "<p>" + quantity + " &times; " + formatPrice(price) + "</p>" +
+        "<strong>" +
+        escapeHTML(item.name || "Product") +
+        "</strong>" +
+        "<p>" +
+        safeQuantity +
+        " &times; " +
+        formatPrice(safePrice) +
+        "</p>" +
         "</div>" +
-        "<strong>" + formatPrice(subtotal) + "</strong>" +
+        "<strong>" +
+        formatPrice(subtotal) +
+        "</strong>" +
         "</div>"
       );
     })
@@ -55,98 +111,254 @@ function renderCheckoutSummary() {
 
   container.innerHTML =
     "<h2>Order Summary</h2>" +
-    '<div class="checkout-items">' + itemsHTML + "</div>" +
+    '<div class="checkout-items">' +
+    itemsHTML +
+    "</div>" +
     '<div class="checkout-total">' +
     "<span>Total</span>" +
-    "<strong>" + formatPrice(total) + "</strong>" +
+    "<strong>" +
+    formatPrice(total) +
+    "</strong>" +
     "</div>";
 
   updateCartCount();
 }
 
-/* Customer details */
+
+/* =========================
+   BASIC HTML ESCAPE
+========================= */
+
+function escapeHTML(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
+/* =========================
+   CUSTOMER DETAILS
+========================= */
+
 function getCustomerDetails() {
+  const nameInput = document.getElementById("customer-name");
+  const phoneInput = document.getElementById("customer-phone");
+  const emailInput = document.getElementById("customer-email");
+  const locationInput = document.getElementById("customer-location");
+
   return {
-    name: document.getElementById("customer-name").value.trim(),
-    phone: document.getElementById("customer-phone").value.trim(),
-    email: document.getElementById("customer-email").value.trim(),
-    location: document.getElementById("customer-location").value.trim(),
+    name: nameInput ? nameInput.value.trim() : "",
+    phone: phoneInput ? phoneInput.value.trim() : "",
+    email: emailInput ? emailInput.value.trim() : "",
+    location: locationInput ? locationInput.value.trim() : "",
   };
 }
 
-/* Payment status UI */
-function showPaymentStatus(type, title, message, receipt = null) {
-  let statusContainer = document.getElementById("payment-status");
+
+/* =========================
+   VALIDATE CUSTOMER DETAILS
+========================= */
+
+function validateCustomerDetails(customer) {
+  if (!customer.name) {
+    return "Please enter your name.";
+  }
+
+  if (!customer.phone) {
+    return "Please enter your M-Pesa phone number.";
+  }
+
+  if (!customer.email) {
+    return "Please enter your email address.";
+  }
+
+  if (!customer.location) {
+    return "Please enter your location.";
+  }
+
+  return null;
+}
+
+
+/* =========================
+   PAYMENT STATUS UI
+========================= */
+
+function showPaymentStatus(
+  type,
+  title,
+  message,
+  receipt = null
+) {
+  let statusContainer =
+    document.getElementById("payment-status");
 
   if (!statusContainer) {
     const form = document.getElementById("checkout-form");
-    if (!form) return;
+
+    if (!form) {
+      console.warn("Checkout form not found.");
+      return;
+    }
 
     statusContainer = document.createElement("div");
     statusContainer.id = "payment-status";
     statusContainer.setAttribute("role", "status");
+    statusContainer.setAttribute("aria-live", "polite");
+
     form.parentNode.insertBefore(statusContainer, form);
   }
 
   let receiptHTML = "";
+
   if (receipt) {
     receiptHTML =
-      '<p class="payment-receipt"><strong>M-Pesa Receipt:</strong> ' +
-      receipt +
+      '<p class="payment-receipt">' +
+      "<strong>M-Pesa Receipt:</strong> " +
+      escapeHTML(receipt) +
       "</p>";
   }
 
-  statusContainer.className = "payment-status " + type;
+  statusContainer.className =
+    "payment-status " + type;
+
   statusContainer.innerHTML =
     '<div class="payment-status-content">' +
-    "<h3>" + title + "</h3>" +
-    "<p>" + message + "</p>" +
+    "<h3>" +
+    escapeHTML(title) +
+    "</h3>" +
+    "<p>" +
+    escapeHTML(message) +
+    "</p>" +
     receiptHTML +
     "</div>";
 
-  statusContainer.scrollIntoView({ behavior: "smooth", block: "center" });
+  statusContainer.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+  });
 }
 
-/* Stop payment polling */
+
+/* =========================
+   STOP PAYMENT POLLING
+========================= */
+
 function stopPaymentPolling() {
   paymentPollingActive = false;
+  paymentPollingStartedAt = null;
+
   if (paymentPollingTimer) {
     clearTimeout(paymentPollingTimer);
     paymentPollingTimer = null;
   }
 }
 
-/* Check payment status */
-async function checkPaymentStatus(orderId, submitButton) {
-  if (!orderId) return;
-  if (!paymentPollingActive) return;
 
-  try {
-    console.log("Checking payment status:", orderId);
+/* =========================
+   CHECK PAYMENT STATUS
+========================= */
 
-    const response = await fetch(
-      `${API_URL}/orders/status?orderId=${encodeURIComponent(orderId)}`,
-      { method: "GET", cache: "no-store" }
+async function checkPaymentStatus(
+  orderId,
+  submitButton
+) {
+  if (!orderId) {
+    console.error("Cannot check payment status: order ID missing.");
+    return;
+  }
+
+  if (!paymentPollingActive) {
+    return;
+  }
+
+  /* Check polling timeout */
+  if (
+    paymentPollingStartedAt &&
+    Date.now() - paymentPollingStartedAt >=
+      PAYMENT_POLLING_TIMEOUT
+  ) {
+    stopPaymentPolling();
+
+    showPaymentStatus(
+      "error",
+      "Payment Confirmation Timed Out",
+      "We could not confirm your M-Pesa payment automatically. If you completed the payment, please contact us with your order details."
     );
 
-    const result = await response.json();
-    console.log("Payment status response:", result);
-
-    if (!response.ok || !result.success) {
-      throw new Error(result.error || "Could not check payment status.");
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Check Payment Again";
     }
 
-    // Payment success
+    return;
+  }
+
+  try {
+    console.log(
+      "Checking payment status:",
+      orderId
+    );
+
+    const response = await fetch(
+      `${API_URL}/orders/status?orderId=${encodeURIComponent(
+        orderId
+      )}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
+
+    let result;
+
+    try {
+      result = await response.json();
+    } catch (jsonError) {
+      throw new Error(
+        "The payment status API returned an invalid response."
+      );
+    }
+
+    console.log(
+      "Payment status response:",
+      result
+    );
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.error ||
+          "Could not check payment status."
+      );
+    }
+
+
+    /* =========================
+       PAYMENT SUCCESS
+    ========================= */
+
     if (
       result.paymentStatus === "PAID" ||
+      result.paymentStatus === "paid" ||
       result.status === "paid" ||
-      result.payment?.status === "SUCCESS"
+      result.status === "PAID" ||
+      result.payment?.status === "SUCCESS" ||
+      result.payment?.status === "PAID"
     ) {
       stopPaymentPolling();
 
       const receipt =
         result.payment?.mpesaReceiptNumber ||
+        result.payment?.MpesaReceiptNumber ||
+        result.payment?.receiptNumber ||
         result.order?.payment?.mpesaReceiptNumber ||
+        result.order?.payment?.MpesaReceiptNumber ||
         null;
 
       showPaymentStatus(
@@ -158,64 +370,150 @@ async function checkPaymentStatus(orderId, submitButton) {
 
       if (submitButton) {
         submitButton.disabled = true;
-        submitButton.textContent = "Payment Confirmed";
+        submitButton.textContent =
+          "Payment Confirmed";
       }
 
       try {
-        localStorage.removeItem("priorityfixa_cart");
+        localStorage.removeItem(
+          "priorityfixa_cart"
+        );
       } catch (storageError) {
-        console.warn("Could not clear cart:", storageError);
+        console.warn(
+          "Could not clear cart:",
+          storageError
+        );
       }
 
       updateCartCount();
+
       return;
     }
 
-    // Payment failed
+
+    /* =========================
+       PAYMENT FAILED
+    ========================= */
+
     if (
       result.paymentStatus === "FAILED" ||
+      result.paymentStatus === "failed" ||
       result.status === "payment_failed" ||
+      result.status === "FAILED" ||
       result.payment?.status === "FAILED"
     ) {
       stopPaymentPolling();
 
       const reason =
         result.payment?.resultDescription ||
+        result.payment?.ResultDescription ||
+        result.error ||
         "The M-Pesa payment was not completed.";
 
-      showPaymentStatus("error", "Payment Not Completed", reason);
+      showPaymentStatus(
+        "error",
+        "Payment Not Completed",
+        reason
+      );
 
       if (submitButton) {
         submitButton.disabled = false;
-        submitButton.textContent = "Try Payment Again";
+        submitButton.textContent =
+          "Try Payment Again";
       }
 
       return;
     }
 
-    // Still waiting
+
+    /* =========================
+       PAYMENT CANCELLED
+    ========================= */
+
+    if (
+      result.paymentStatus === "CANCELLED" ||
+      result.paymentStatus === "cancelled" ||
+      result.status === "cancelled" ||
+      result.payment?.status === "CANCELLED"
+    ) {
+      stopPaymentPolling();
+
+      showPaymentStatus(
+        "error",
+        "Payment Cancelled",
+        "The M-Pesa payment request was cancelled."
+      );
+
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent =
+          "Try Payment Again";
+      }
+
+      return;
+    }
+
+
+    /* =========================
+       STILL WAITING
+    ========================= */
+
     if (paymentPollingActive) {
-      paymentPollingTimer = setTimeout(() => {
-        checkPaymentStatus(orderId, submitButton);
-      }, 3000);
+      paymentPollingTimer = setTimeout(
+        () => {
+          checkPaymentStatus(
+            orderId,
+            submitButton
+          );
+        },
+        3000
+      );
     }
   } catch (error) {
-    console.warn("Payment status check failed:", error);
+    console.warn(
+      "Payment status check failed:",
+      error
+    );
 
-    // A temporary status-request failure should NOT immediately tell
-    // the customer that payment failed.
+    /*
+      A temporary API/network failure does NOT
+      immediately mean the M-Pesa payment failed.
+    */
+
     if (paymentPollingActive) {
-      paymentPollingTimer = setTimeout(() => {
-        checkPaymentStatus(orderId, submitButton);
-      }, 5000);
+      paymentPollingTimer = setTimeout(
+        () => {
+          checkPaymentStatus(
+            orderId,
+            submitButton
+          );
+        },
+        5000
+      );
     }
   }
 }
 
-/* Start payment polling */
-function startPaymentPolling(orderId, submitButton) {
+
+/* =========================
+   START PAYMENT POLLING
+========================= */
+
+function startPaymentPolling(
+  orderId,
+  submitButton
+) {
+  if (!orderId) {
+    console.error(
+      "Cannot start payment polling: order ID missing."
+    );
+    return;
+  }
+
   stopPaymentPolling();
+
   paymentPollingActive = true;
+  paymentPollingStartedAt = Date.now();
 
   showPaymentStatus(
     "pending",
@@ -223,134 +521,411 @@ function startPaymentPolling(orderId, submitButton) {
     "Check your phone and enter your M-Pesa PIN. We are waiting for payment confirmation..."
   );
 
-  checkPaymentStatus(orderId, submitButton);
+  checkPaymentStatus(
+    orderId,
+    submitButton
+  );
 }
 
-/* Create order + payment */
+
+/* =========================
+   CREATE ORDER + PAYMENT
+========================= */
+
 async function handleCheckoutSubmit(event) {
   event.preventDefault();
 
+  const form = event.target;
+
+  /* Stop any old polling session */
+  stopPaymentPolling();
+
   const cart = getCart();
-  if (cart.length === 0) {
+
+  if (!Array.isArray(cart) || cart.length === 0) {
     alert("Your cart is empty.");
     return;
   }
 
-  const customer = getCustomerDetails();
+  const customer =
+    getCustomerDetails();
+
+  const validationError =
+    validateCustomerDetails(customer);
+
+  if (validationError) {
+    showPaymentStatus(
+      "error",
+      "Missing Information",
+      validationError
+    );
+
+    alert(validationError);
+    return;
+  }
 
   const total = cart.reduce(
-    (sum, item) => sum + Number(item.price) * Number(item.quantity),
+    (sum, item) => {
+      const price = Number(item.price);
+      const quantity = Number(item.quantity);
+
+      const safePrice =
+        Number.isFinite(price) ? price : 0;
+
+      const safeQuantity =
+        Number.isFinite(quantity) &&
+        quantity > 0
+          ? quantity
+          : 1;
+
+      return (
+        sum +
+        safePrice * safeQuantity
+      );
+    },
     0
   );
 
-  const submitButton = event.target.querySelector('button[type="submit"]');
+  if (!Number.isFinite(total) || total <= 0) {
+    alert(
+      "Your order total is invalid. Please return to your cart and try again."
+    );
+    return;
+  }
+
+  const submitButton =
+    form.querySelector(
+      'button[type="submit"]'
+    );
 
   if (submitButton) {
     submitButton.disabled = true;
-    submitButton.textContent = "Creating Order...";
+    submitButton.textContent =
+      "Creating Order...";
   }
 
   try {
-    // Create order
-    console.log("Sending order to API...");
 
-    const orderResponse = await fetch(`${API_URL}/orders`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer, items: cart }),
-    });
 
-    const orderResult = await orderResponse.json();
-    console.log("API response:", orderResult);
+    /* =========================
+       CREATE ORDER
+    ========================= */
 
-    if (!orderResponse.ok || !orderResult.success) {
-      throw new Error(orderResult.error || "Order could not be created.");
-    }
+    console.log(
+      "Sending order to API..."
+    );
 
-    const order = orderResult.order;
-    console.log("Order created:", order);
+    const orderResponse =
+      await fetch(
+        `${API_URL}/orders`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept:
+              "application/json",
+          },
+          body: JSON.stringify({
+            customer: customer,
+            items: cart,
+          }),
+        }
+      );
 
-    // Start M-Pesa
-    if (submitButton) submitButton.textContent = "Requesting M-Pesa...";
+    let orderResult;
 
-    console.log("Starting M-Pesa payment...");
-
-    const paymentResponse = await fetch(`${API_URL}/payments/mpesa`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId: order.id,
-        amount: total,
-        phone: customer.phone,
-      }),
-    });
-
-    const paymentResult = await paymentResponse.json();
-    console.log("M-Pesa response:", paymentResult);
-
-    if (!paymentResponse.ok || !paymentResult.success) {
+    try {
+      orderResult =
+        await orderResponse.json();
+    } catch (jsonError) {
       throw new Error(
-        paymentResult.error || "M-Pesa payment could not be initiated."
+        "The order API returned an invalid response."
       );
     }
 
-    // STK push success
-    if (submitButton) submitButton.textContent = "Waiting for Payment...";
-
-    const checkoutRequestId =
-      paymentResult.payment?.checkoutRequestId ||
-      paymentResult.mpesa?.CheckoutRequestID ||
-      null;
-
-    console.log("STK Push initiated:", checkoutRequestId);
-
-    showPaymentStatus(
-      "pending",
-      "M-Pesa Request Sent",
-      "A payment request has been sent to your phone. Enter your M-Pesa PIN to complete the payment."
+    console.log(
+      "Order API response:",
+      orderResult
     );
 
-    // Begin polling
-    startPaymentPolling(order.id, submitButton);
+    if (
+      !orderResponse.ok ||
+      !orderResult.success
+    ) {
+      throw new Error(
+        orderResult.error ||
+          "Order could not be created."
+      );
+    }
+
+    const order =
+      orderResult.order;
+
+    if (!order || !order.id) {
+      throw new Error(
+        "The order was created but no order ID was returned."
+      );
+    }
+
+    console.log(
+      "Order created:",
+      order
+    );
+
+
+    /* =========================
+       START M-PESA
+    ========================= */
+
+    if (submitButton) {
+      submitButton.textContent =
+        "Requesting M-Pesa...";
+    }
+
+    console.log(
+      "Starting M-Pesa payment..."
+    );
+
+    const paymentResponse =
+      await fetch(
+        `${API_URL}/payments/mpesa`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept:
+              "application/json",
+          },
+          body: JSON.stringify({
+            orderId: order.id,
+            amount: total,
+            phone: customer.phone,
+          }),
+        }
+      );
+
+    let paymentResult;
+
+    try {
+      paymentResult =
+        await paymentResponse.json();
+    } catch (jsonError) {
+      throw new Error(
+        "The M-Pesa API returned an invalid response."
+      );
+    }
+
+    console.log(
+      "M-Pesa response:",
+      paymentResult
+    );
+
+    if (
+      !paymentResponse.ok ||
+      !paymentResult.success
+    ) {
+      throw new Error(
+        paymentResult.error ||
+          paymentResult.message ||
+          "M-Pesa payment could not be initiated."
+      );
+    }
+
+
+    /* =========================
+       GET CHECKOUT REQUEST ID
+    ========================= */
+
+    const checkoutRequestId =
+      paymentResult.payment
+        ?.checkoutRequestId ||
+      paymentResult.payment
+        ?.CheckoutRequestID ||
+      paymentResult.mpesa
+        ?.checkoutRequestId ||
+      paymentResult.mpesa
+        ?.CheckoutRequestID ||
+      paymentResult.CheckoutRequestID ||
+      paymentResult.checkoutRequestId ||
+      null;
+
+    console.log(
+      "STK Push initiated:",
+      checkoutRequestId
+    );
+
+    /*
+      The STK Push should return a CheckoutRequestID.
+      We validate it here so a false success response
+      does not leave the customer waiting forever.
+    */
+
+    if (!checkoutRequestId) {
+      throw new Error(
+        "M-Pesa payment was initiated, but no CheckoutRequestID was returned by the payment API."
+      );
+    }
+
+
+    /* =========================
+       WAITING FOR PAYMENT
+    ========================= */
+
+    if (submitButton) {
+      submitButton.textContent =
+        "Waiting for Payment...";
+    }
+
+    /*
+      startPaymentPolling() displays the pending
+      message, so we do not display it twice here.
+    */
+
+    startPaymentPolling(
+      order.id,
+      submitButton
+    );
   } catch (error) {
-    console.error("Checkout error:", error);
+    console.error(
+      "Checkout error:",
+      error
+    );
 
     stopPaymentPolling();
 
-    showPaymentStatus("error", "Checkout Error", error.message);
+    const message =
+      error && error.message
+        ? error.message
+        : "Something went wrong during checkout.";
+
+    showPaymentStatus(
+      "error",
+      "Checkout Error",
+      message
+    );
+
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent =
+        "Try Again";
+    }
 
     alert(
-      "There was a problem with your order or payment.\n\n" + error.message
+      "There was a problem with your order or payment.\n\n" +
+        message
     );
   }
 }
 
-/* Business information */
+
+/* =========================
+   BUSINESS INFORMATION
+========================= */
+
 function loadCheckoutBusinessInformation() {
-  if (typeof BUSINESS_CONFIG === "undefined") {
-    console.error("BUSINESS_CONFIG is not loaded.");
+  if (
+    typeof BUSINESS_CONFIG ===
+    "undefined"
+  ) {
+    console.error(
+      "BUSINESS_CONFIG is not loaded."
+    );
     return;
   }
 
-  const businessName = document.getElementById("business-name");
-  const footerBusinessName = document.getElementById("footer-business-name");
+  const businessName =
+    document.getElementById(
+      "business-name"
+    );
 
-  if (businessName) businessName.textContent = BUSINESS_CONFIG.name;
-  if (footerBusinessName) footerBusinessName.textContent = BUSINESS_CONFIG.name;
+  const footerBusinessName =
+    document.getElementById(
+      "footer-business-name"
+    );
+
+  if (businessName) {
+    businessName.textContent =
+      BUSINESS_CONFIG.name || "";
+  }
+
+  if (footerBusinessName) {
+    footerBusinessName.textContent =
+      BUSINESS_CONFIG.name || "";
+  }
 }
 
-/* Initialize */
+
+/* =========================
+   INITIALIZE
+========================= */
+
 function initializeCheckout() {
+  console.log(
+    "PriorityFixa Checkout initializing..."
+  );
+
   loadCheckoutBusinessInformation();
+
+  /*
+    getCart() and updateCartCount() are expected
+    to come from the storefront/cart JavaScript.
+  */
+
+  if (typeof getCart !== "function") {
+    console.error(
+      "getCart() is not defined. Make sure the cart/storefront JavaScript loads before checkout.js."
+    );
+    return;
+  }
+
   renderCheckoutSummary();
 
-  const form = document.getElementById("checkout-form");
+  const form =
+    document.getElementById(
+      "checkout-form"
+    );
+
   if (!form) {
-    console.error("Checkout form not found.");
+    console.error(
+      "Checkout form not found."
+    );
     return;
   }
 
-  form.addEventListener("submit", handleCheckoutSubmit);
+  /*
+    Prevent duplicate submit listeners if
+    initialization is accidentally triggered twice.
+  */
+
+  if (
+    form.dataset.checkoutInitialized ===
+    "true"
+  ) {
+    return;
+  }
+
+  form.dataset.checkoutInitialized =
+    "true";
+
+  form.addEventListener(
+    "submit",
+    handleCheckoutSubmit
+  );
+
+  console.log(
+    "PriorityFixa Checkout initialized successfully."
+  );
 }
 
-document.addEventListener("DOMContentLoaded", initializeCheckout);
+
+/* =========================
+   DOM READY
+========================= */
+
+document.addEventListener(
+  "DOMContentLoaded",
+  initializeCheckout
+);
+```
